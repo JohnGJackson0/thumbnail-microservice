@@ -15,6 +15,7 @@ provider:
   environment:
     THUMBNAIL_SIZE: 128
     REGION_NAME: ${self:provider.region}
+    DYNAMODB_TABLE: ${self:custom.dynamoTable}
   
   iam:
     role:
@@ -22,10 +23,21 @@ provider:
         - Effect: 'Allow'
           Resource: '*'
           Action: 's3:*'
+        - Effect: 'Allow'
+          Action: 
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
+
 
 # difference of env var?
 custom:
   bucket: thumbnail-service
+  dynamoTable: img-url-table
 
 functions:
   s3_thumbnail_generator:
@@ -66,3 +78,25 @@ functions:
     # layers inject deps into lamda functions
     layers:
     - arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p38-Pillow:4
+
+resources:
+  Resources:
+    # use this table, and creates it if it does 
+    # not exist
+    ImageDynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: id
+            # string
+            AttributeType: S
+        # specify primary key
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        # one read and write per second until
+        # dynamo shows an error
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}

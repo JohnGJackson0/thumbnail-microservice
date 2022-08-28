@@ -2,6 +2,8 @@ from io import BytesIO
 import json
 import boto3
 import os
+import uuid
+from datetime import datetime
 # import resolved using layer
 from PIL import Image, ImageOps
 
@@ -12,6 +14,10 @@ s3 = boto3.client('s3')
 # to specify what thumbnail resizes to from
 # original image
 size = int(os.environ['THUMBNAIL_SIZE'])
+dbtable = str(os.environ['DYNAMODB_TABLE'])
+dynamodb = boto3.resource(
+    'dynamodb', region_name=str(os.environ['REGION_NAME'])
+)
 
 def s3_thumbnail_generator(event, context):
     print('EVENT:::', event)
@@ -33,8 +39,26 @@ def s3_thumbnail_generator(event, context):
     def new_filename(key):
         key_split = key.rsplit('.', 1)
         return key_split[0] + '_thumbnail.png'
+    
+    def save_thumbnail_meta_to_dynamo(url_path, img_size):
+        table = dynamodb.Table(dbtable)
+        response = table.put_item(
+            Item = {
+                'id': str(uuid.uuid4()),
+                'url': str(url_path),
+                'originalSizeKb': str(img_size),
+                'createdAt': str(datetime.now()),
+                'updatedAt' : str(datetime.now())
+            }
+        )
 
-    def upload_to_s3(bucket, key, image, img_size): 
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps(response)
+        }
+
+    def upload_to_s3(bucket, key, image): 
         out_thumbnail = BytesIO()
         image.save(out_thumbnail, 'PNG')
         out_thumbnail.seek(0)
@@ -45,6 +69,8 @@ def s3_thumbnail_generator(event, context):
             ContentType='image/png',
             Key=key
         )
+
+        print('response in upload to s3', response)
 
         body = {
             "message": "Go Serverless v3.0! Your function executed successfully!",
@@ -57,7 +83,11 @@ def s3_thumbnail_generator(event, context):
         image = get_s3_image(bucket, key)
         thumbnail = image_to_thumbnail(image)
         thumbnail_key = new_filename(key)
-        
-        url = upload_to_s3(bucket, thumbnail_key, thumbnail, img_size)
+        response = upload_to_s3(bucket, thumbnail_key, thumbnail)
 
-        return url
+        # this wont age well
+        url = 'https://thumbnail-service.s3.amazonaws.com/'+thumbnail_key;
+
+        save_thumbnail_meta_to_dynamo(url_path=url, img_size=img_size)
+
+        return response

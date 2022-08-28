@@ -5,7 +5,64 @@ frameworkVersion: '3'
 provider:
   name: aws
   runtime: python3.8
+  region: us-east-1
+  stage: dev
+  # timeout property for all variables without
+  # timeout override underneith the variable name
+  # all of these can be specified per lambda function
+  timeout: 10
+  memorySize: 128
+  environment:
+    THUMBNAIL_SIZE: 128
+    REGION_NAME: ${self:provider.region}
+  
+  iam:
+    role:
+      statements:
+        - Effect: 'Allow'
+          Resource: '*'
+          Action: 's3:*'
+
+# difference of env var?
+custom:
+  bucket: thumbnail-service
 
 functions:
-  hello:
-    handler: handler.hello
+  s3_thumbnail_generator:
+    handler: handler.s3_thumbnail_generator
+    # specify when it is triggered with events
+    events:
+      # specify s3 to handle trigger event
+      - s3:
+          # specify a bucket inside of s3 aws console, 
+          # or make a new one
+          bucket: ${self:custom.bucket}
+          # on bucket above, when object created then
+          # fire this lambda function, which will create
+          # the metadata, resize, rename, ect.
+          # shown on lambda function
+
+          # shows that lambdas get triggered in 
+          # various circumstances on cloud not just 
+          # api requests
+          event: s3:ObjectCreated:*
+          # restrict to certain files
+          rules:
+            # on file that is PNG
+            - suffix: .png
+    
+    # in console: lambda -> layers -> arn -> 
+    # but serverless way is more preferred
+    # since we want all configuration through
+    # serverless if we are using it
+
+    # basics:
+    # https://github.com/keithrozario/Klayers
+    # must be on the same region as lambda layer
+    # api can be used to see the different layers
+    # on this api
+    # https://api.klayers.cloud/api/v2/p3.9/layers/latest/us-east-1/json
+
+    # layers inject deps into lamda functions
+    layers:
+    - arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p38-Pillow:4
